@@ -18,6 +18,8 @@ Add Jq4J as a standard Maven dependency:
 </dependency>
 ```
 
+TODO: usage docs, the API is minimal
+
 ## Building the Project
 
 To build this project, you'll need:
