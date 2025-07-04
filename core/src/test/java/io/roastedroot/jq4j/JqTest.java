@@ -77,10 +77,6 @@ public class JqTest {
 
         // Act
         var result = jq.run();
-        System.out.println("stderr:");
-        result.printStderr();
-        System.out.println("stdout:");
-        result.printStdout();
 
         // Assert
         assertTrue(result.success());
