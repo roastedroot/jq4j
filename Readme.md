@@ -39,4 +39,5 @@ mvn clean install
 
 This project stands on the shoulders of giants:
 
+* [go-jq](https://github.com/wasilibs/go-jq) - go-jq is a distribution of jq, that can be built with Go
 * [Chicory](https://chicory.dev/) – a native JVM WebAssembly runtime
