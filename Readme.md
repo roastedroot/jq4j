@@ -18,7 +18,30 @@ Add Jq4J as a standard Maven dependency:
 </dependency>
 ```
 
-TODO: usage docs, the API is minimal
+The usage matches 1:1 the usage through the `jq` CLI, hence you should:
+ - define the command line arguments to be used
+ - pass the input over on stdin
+ - extract the output as stdout
+
+In case of any error you can always inspect stdout/stderr produced by `jq` to identify the issue.
+Example:
+
+```java
+import io.roastedroot.jq4j.Jq;
+
+var result = Jq.builder()
+    .withStdin("{\"foo\": 0}".getBytes(UTF_8))
+    .withArgs("-M", "--compact-output", ".")
+    .run();
+
+if (result.success()) {
+    var resultStr = new String(result.stdout(), UTF_8); // {"foo":0}\n
+    ...
+} else {
+    System.out.println(result.stdout());
+    System.err.println(result.stderr());
+}
+```
 
 ## Building the Project
 
