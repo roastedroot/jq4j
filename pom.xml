@@ -62,7 +62,7 @@
 
     <!-- test time versions -->
     <junit.version>5.13.3</junit.version>
-    <jackson.version>2.19.1</jackson.version>
+    <jackson.version>2.19.2</jackson.version>
 
     <!-- runtime versions -->
     <chicory.version>1.5.1</chicory.version>
