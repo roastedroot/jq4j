@@ -191,11 +191,16 @@ public final class JqReactor implements AutoCloseable {
             var result = reactor.process(input, filter, flags);
 
             // clean up for next execution
+            reset();
+
+            return result;
+        }
+
+        /** Package-private: used by {@link JqReactorPool} on return. */
+        void reset() {
             input = null;
             filter = null;
             flags = 0;
-
-            return result;
         }
 
         @Override
