@@ -22,12 +22,6 @@ import java.util.Objects;
 /**
  * Reactor-mode jq wrapper that uses WASM linear memory for I/O.
  *
- * <p>Unlike {@link Jq}, which creates a new WASM instance per invocation,
- * this class keeps a single long-lived instance and calls exported functions
- * directly.  The jq runtime ({@code jq_init()}) runs once during module
- * initialization, so each {@link #process} call only pays for
- * compilation + evaluation.
- *
  * <p><b>Not thread-safe.</b> Use one instance per thread, or synchronise
  * externally.
  */
@@ -152,9 +146,17 @@ public final class JqReactor implements AutoCloseable {
             return reactor;
         }
 
+        public Builder withInput(String input) {
+            return withInput(input.getBytes(StandardCharsets.UTF_8));
+        }
+
         public Builder withInput(byte[] input) {
             this.input = input;
             return this;
+        }
+
+        public Builder withFilter(String filter) {
+            return withFilter(filter.getBytes(StandardCharsets.UTF_8));
         }
 
         public Builder withFilter(byte[] filter) {
@@ -162,12 +164,30 @@ public final class JqReactor implements AutoCloseable {
             return this;
         }
 
+        public Builder withCompactOutput() {
+            this.flags |= FLAG_COMPACT;
+            return this;
+        }
+
+        public Builder withSlurp() {
+            this.flags |= FLAG_SLURP;
+            return this;
+        }
+
+        public Builder withNullInput() {
+            this.flags |= FLAG_NULL_INPUT;
+            return this;
+        }
+
+        public Builder withSortKeys() {
+            this.flags |= FLAG_SORT_KEYS;
+            return this;
+        }
+
         public byte[] run() {
             Objects.requireNonNull(input);
             Objects.requireNonNull(filter);
-            if (flags == 0) {
-                flags = FLAG_COMPACT;
-            }
+
             var result = reactor.process(input, filter, flags);
 
             // clean up for next execution

@@ -35,12 +35,13 @@ public class JqTest {
 
         // Act
         var basic = jq
-                .withInput("{\n  \"foo\":   0   \n}".getBytes(UTF_8))
-                .withFilter(".".getBytes(UTF_8))
+                .withInput("{\n  \"foo\":   0   \n}")
+                .withFilter(".")
+                .withCompactOutput()
                 .run();
         var fruits = jq
                 .withInput(JqTest.class.getResourceAsStream("/fruits.json").readAllBytes())
-                .withFilter(".[].name".getBytes(UTF_8))
+                .withFilter(".[].name")
                 .run();
 
         // Assert
