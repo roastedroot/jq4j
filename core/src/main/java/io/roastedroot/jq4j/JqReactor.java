@@ -8,8 +8,6 @@ import com.dylibso.chicory.runtime.Memory;
 import com.dylibso.chicory.wasi.WasiOptions;
 import com.dylibso.chicory.wasi.WasiPreview1;
 import com.dylibso.chicory.wasm.WasmModule;
-
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 
@@ -19,13 +17,11 @@ import java.nio.charset.StandardCharsets;
  * <p>Unlike {@link Jq}, which creates a new WASM instance per invocation,
  * this class keeps a single long-lived instance and calls exported functions
  * directly.  The jq runtime ({@code jq_init()}) runs once during module
- * initialization (snapshotted by Wizer at build time), so each
- * {@link #process} call only pays for compilation + evaluation.
+ * initialization, so each {@link #process} call only pays for
+ * compilation + evaluation.
  *
  * <p><b>Not thread-safe.</b> Use one instance per thread, or synchronise
  * externally.
- *
- * <p>This is a prototype / sketch — the reactor WASM binary does not exist yet.
  */
 public final class JqReactor implements AutoCloseable {
 
@@ -36,11 +32,8 @@ public final class JqReactor implements AutoCloseable {
     public static final int FLAG_SORT_KEYS  = 1 << 3;
 
     /* ── return codes from the C side ──────────────────────────────── */
-    private static final int RC_ERROR_INIT     = -3;
-    private static final int RC_ERROR_OVERFLOW = -2;
-    private static final int RC_ERROR_COMPILE  = -1;
-
-    private static final int DEFAULT_OUTPUT_SIZE = 256 * 1024; // 256 KiB
+    private static final int RC_ERROR_INIT    = -3;
+    private static final int RC_ERROR_COMPILE = -1;
 
     private static WasmModule MODULE = JqModule.load();
 
@@ -49,32 +42,34 @@ public final class JqReactor implements AutoCloseable {
     private final ExportFunction allocFn;
     private final ExportFunction deallocFn;
     private final ExportFunction processFn;
+    private final ExportFunction getOutputPtrFn;
+    private final ExportFunction getOutputLenFn;
 
-    /**
-     * Create a reactor instance from a pre-built reactor WASM module.
-     */
     public JqReactor() {
-        var stdout = new ByteArrayOutputStream();
-        var stderr = new ByteArrayOutputStream();
+        var wasi = WasiPreview1.builder()
+                .withOptions(WasiOptions.builder()
+                        .withStdout(new ByteArrayOutputStream())
+                        .withStderr(new ByteArrayOutputStream())
+                        .build())
+                .build();
 
-        var wasiOptsBuilder =
-                WasiOptions.builder()
-                        .withStdout(stdout)
-                        .withStderr(stderr);
-
-        var wasi = WasiPreview1.builder().withOptions(wasiOptsBuilder.build()).build();
-        // Build the instance — this calls _initialize() which runs
-        // the __attribute__((constructor)) that calls jq_init().
         this.instance = Instance.builder(MODULE)
                 .withMachineFactory(JqModule::create)
                 .withMemoryFactory(ByteArrayMemory::new)
-                .withImportValues(ImportValues.builder().addFunction(wasi.toHostFunctions()).build())
+                .withImportValues(
+                        ImportValues.builder()
+                                .addFunction(wasi.toHostFunctions())
+                                .build())
                 .build();
-        this.memory    = instance.memory();
-        this.allocFn   = instance.export("alloc");
-        this.deallocFn = instance.export("dealloc");
-        this.processFn = instance.export("process");
-        instance.exports().function("_initialize").apply();
+
+        this.memory         = instance.memory();
+        this.allocFn        = instance.export("alloc");
+        this.deallocFn      = instance.export("dealloc");
+        this.processFn      = instance.export("process");
+        this.getOutputPtrFn = instance.export("get_output_ptr");
+        this.getOutputLenFn = instance.export("get_output_len");
+
+        instance.export("_initialize").apply();
     }
 
     /**
@@ -88,47 +83,36 @@ public final class JqReactor implements AutoCloseable {
      */
     public String process(byte[] input, String filter, int flags) {
         byte[] filterBytes = filter.getBytes(StandardCharsets.UTF_8);
-        int outputMax = DEFAULT_OUTPUT_SIZE;
 
-        // Allocate buffers in WASM linear memory
-        int inputPtr  = alloc(input.length);
-        int filterPtr = alloc(filterBytes.length);
-        int outputPtr = alloc(outputMax);
+        int inputPtr  = (int) allocFn.apply(input.length)[0];
+        int filterPtr = (int) allocFn.apply(filterBytes.length)[0];
 
         try {
-            // Copy data into WASM memory
             memory.write(inputPtr, input);
             memory.write(filterPtr, filterBytes);
 
-            // Call process(input_ptr, input_len, filter_ptr, filter_len,
-            //              output_ptr, output_max, flags)
-            long[] result = processFn.apply(
+            long[] rc = processFn.apply(
                     inputPtr, input.length,
                     filterPtr, filterBytes.length,
-                    outputPtr, outputMax,
                     flags);
-            int bytesWritten = (int) result[0];
+            int ret = (int) rc[0];
 
-            if (bytesWritten == RC_ERROR_COMPILE) {
+            if (ret == RC_ERROR_COMPILE) {
                 throw new JqException("jq filter compilation failed: " + filter);
             }
-            if (bytesWritten == RC_ERROR_OVERFLOW) {
-                // TODO: retry with a larger buffer
-                throw new JqException("Output buffer overflow (>" + outputMax + " bytes)");
-            }
-            if (bytesWritten == RC_ERROR_INIT) {
+            if (ret == RC_ERROR_INIT) {
                 throw new JqException("jq runtime initialization failed");
             }
-            if (bytesWritten < 0) {
-                throw new JqException("Unknown error from jq wrapper: " + bytesWritten);
+            if (ret < 0) {
+                throw new JqException("Unknown error from jq wrapper: " + ret);
             }
 
-            // Read result from WASM memory
-            return memory.readString(outputPtr, bytesWritten, StandardCharsets.UTF_8);
+            int outPtr = (int) getOutputPtrFn.apply()[0];
+            int outLen = (int) getOutputLenFn.apply()[0];
+            return memory.readString(outPtr, outLen, StandardCharsets.UTF_8);
         } finally {
-            dealloc(inputPtr, input.length);
-            dealloc(filterPtr, filterBytes.length);
-            dealloc(outputPtr, outputMax);
+            deallocFn.apply(inputPtr, input.length);
+            deallocFn.apply(filterPtr, filterBytes.length);
         }
     }
 
@@ -137,14 +121,6 @@ public final class JqReactor implements AutoCloseable {
      */
     public String process(byte[] input, String filter) {
         return process(input, filter, FLAG_COMPACT);
-    }
-
-    private int alloc(int size) {
-        return (int) allocFn.apply(size)[0];
-    }
-
-    private void dealloc(int ptr, int size) {
-        deallocFn.apply(ptr, size);
     }
 
     @Override

@@ -38,6 +38,8 @@ RUN clang-17 \
     -Wl,--export=alloc \
     -Wl,--export=dealloc \
     -Wl,--export=process \
+    -Wl,--export=get_output_ptr \
+    -Wl,--export=get_output_len \
     -o jq_reactor.wasm
 
 RUN wasm-opt -o jq_reactor_opt.wasm --low-memory-unused --flatten --rereloop --converge -O3 jq_reactor.wasm

@@ -20,12 +20,15 @@
 #define FLAG_SORT_KEYS  (1 << 3)
 
 /* ── error return codes ─────────────────────────────────────────── */
-#define RC_ERROR_INIT     -3
-#define RC_ERROR_OVERFLOW -2
-#define RC_ERROR_COMPILE  -1
+#define RC_ERROR_INIT    -3
+#define RC_ERROR_COMPILE -1
 
-/* ── global jq state ────────────────────────────────────────────── */
+/* ── global state ───────────────────────────────────────────────── */
 static jq_state *jq = NULL;
+
+static char *output_buf = NULL;
+static int   output_len = 0;
+static int   output_cap = 0;
 
 __attribute__((constructor))
 static void jq_wrapper_init(void) { jq = jq_init(); }
@@ -35,6 +38,29 @@ static void jq_wrapper_init(void) { jq = jq_init(); }
 void *alloc(int size) { return malloc((size_t)size); }
 
 void dealloc(void *ptr, int size) { (void)size; free(ptr); }
+
+/* host reads the output after process() returns */
+char *get_output_ptr(void) { return output_buf; }
+int   get_output_len(void) { return output_len; }
+
+/* ── growable output buffer ─────────────────────────────────────── */
+
+static void output_reset(void) { output_len = 0; }
+
+static int output_append(const char *s, int slen) {
+    int needed = output_len + slen;
+    if (needed > output_cap) {
+        int new_cap = output_cap ? output_cap : 4096;
+        while (new_cap < needed) new_cap *= 2;
+        char *new_buf = realloc(output_buf, new_cap);
+        if (!new_buf) return -1;
+        output_buf = new_buf;
+        output_cap = new_cap;
+    }
+    memcpy(output_buf + output_len, s, slen);
+    output_len += slen;
+    return 0;
+}
 
 /* ── buf_input: buffer-backed input, mirrors jq_util_input ──────── *
  *                                                                    *
@@ -58,8 +84,6 @@ static void buf_input_init(buf_input *bi,
     bi->slurped = slurp ? jv_array() : jv_invalid();
 }
 
-/* Same contract as jq_util_input_next_input: returns jv_invalid()
-   when there are no more values. */
 static jv buf_input_next(buf_input *bi) {
     jv value;
     while (jv_is_valid(value = jv_parser_next(bi->parser))) {
@@ -90,38 +114,39 @@ static void buf_input_free(buf_input *bi) {
         jv_free(bi->slurped);
 }
 
-/* ── jq_start/jq_next loop → output buffer ─────────────────────── */
+/* ── jq_start/jq_next loop → growable output buffer ────────────── */
 
-static int run_jq(jv input, int dumpopts,
-                  char *out, int out_len, int out_max) {
+static int run_jq(jv input, int dumpopts) {
     jq_start(jq, input, 0);                       /* consumes input */
     jv result;
     while (jv_is_valid(result = jq_next(jq))) {
         jv dumped = jv_dump_string(result, dumpopts);  /* consumes result */
         const char *s = jv_string_value(dumped);
         int slen = jv_string_length_bytes(jv_copy(dumped));
-        if (out_len + slen + 1 > out_max) {
+        if (output_append(s, slen) < 0 || output_append("\n", 1) < 0) {
             jv_free(dumped);
-            return RC_ERROR_OVERFLOW;
+            jv_free(jq_next(jq)); /* drain */
+            return -1;
         }
-        memcpy(out + out_len, s, slen);
-        out_len += slen;
-        out[out_len++] = '\n';
         jv_free(dumped);
     }
     jv_free(result);
-    return out_len;
+    return 0;
 }
 
-/* ── main entry point ───────────────────────────────────────────── */
+/* ── main entry point ───────────────────────────────────────────── *
+ *                                                                    *
+ * Returns bytes written to the output buffer (>= 0), or negative     *
+ * error code.  Host reads output via get_output_ptr().               */
 
 int process(
         const char *input_ptr,  int input_len,
         const char *filter_ptr, int filter_len,
-        char       *output_ptr, int output_max,
         int         flags)
 {
     if (!jq) return RC_ERROR_INIT;
+
+    output_reset();
 
     /* null-terminate filter for jq_compile */
     char *filter = malloc(filter_len + 1);
@@ -144,20 +169,16 @@ int process(
     buf_input_init(&input, input_ptr, input_len, flags & FLAG_SLURP);
     jq_set_input_cb(jq, buf_input_cb, &input);
 
-    int out_len = 0;
-
     /* two branches, same as jq main.c lines 666-693 */
     if (flags & FLAG_NULL_INPUT) {
-        out_len = run_jq(jv_null(), dumpopts, output_ptr, 0, output_max);
+        run_jq(jv_null(), dumpopts);
     } else {
         jv value;
-        while (jv_is_valid(value = buf_input_next(&input))) {
-            out_len = run_jq(value, dumpopts, output_ptr, out_len, output_max);
-            if (out_len < 0) break;
-        }
+        while (jv_is_valid(value = buf_input_next(&input)))
+            run_jq(value, dumpopts);
     }
 
     jq_set_input_cb(jq, NULL, NULL);
     buf_input_free(&input);
-    return out_len;
+    return output_len;
 }
