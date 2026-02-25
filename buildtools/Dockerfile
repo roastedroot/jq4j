@@ -7,13 +7,51 @@ ADD buildtools/version.txt version.txt
 RUN curl -L https://github.com/jqlang/jq/releases/download/$(cat version.txt | awk '{$1=$1};1')/$(cat version.txt | awk '{$1=$1};1').tar.gz | tar -xz --strip-components 1 -C /workspace
 
 ENV CFLAGS --target=wasm32-wasi-threads --sysroot=/wasi-sysroot/ -pthread -O3 -D_WASI_EMULATED_SIGNAL
-ENV LDFLAGS ${CFLAGS} -Wl,--global-base=1024  -Wl,--max-memory=4294967296 -lwasi-emulated-signal
+ENV LDFLAGS ${CFLAGS} -Wl,--global-base=1024 -Wl,--max-memory=4294967296 -lwasi-emulated-signal
 ENV NM llvm-nm-${LLVM_VERSION}
 
 # host is required by configure but not used so set it arbitrarily
 RUN ./configure --with-oniguruma=builtin --host=i686-pc-linux-gnu
 RUN make
 
-RUN wasm-opt -o jq.wasm --low-memory-unused --flatten --rereloop --converge -O3 ./jq
+# Compile jq's main.c as jq_main (renamed via -Dmain=jq_main)
+RUN clang-17 -c \
+    --target=wasm32-wasi-threads \
+    --sysroot=/wasi-sysroot/ \
+    -pthread -O3 \
+    -D_WASI_EMULATED_SIGNAL \
+    -Dmain=jq_main \
+    -I./src -I. \
+    src/main.c -o jq_main.o
+
+# Build the reactor-mode binary with both APIs:
+#   - jq_main_wasi: original batch execution (uses WASI stdin/stdout)
+#   - process/get_output_ptr/get_output_len: linear-memory API
+ADD buildtools/jq_wrapper.c jq_wrapper.c
+RUN clang-17 \
+    --target=wasm32-wasi-threads \
+    --sysroot=/wasi-sysroot/ \
+    -mexec-model=reactor \
+    -pthread \
+    -O3 \
+    -D_WASI_EMULATED_SIGNAL \
+    -I./src \
+    -I. \
+    jq_wrapper.c \
+    jq_main.o \
+    .libs/libjq.a \
+    modules/oniguruma/src/.libs/libonig.a \
+    -lwasi-emulated-signal \
+    -Wl,--global-base=1024 \
+    -Wl,--max-memory=4294967296 \
+    -Wl,--export=alloc \
+    -Wl,--export=dealloc \
+    -Wl,--export=process \
+    -Wl,--export=get_output_ptr \
+    -Wl,--export=get_output_len \
+    -Wl,--export=jq_main_wasi \
+    -o jq_reactor.wasm
+
+RUN wasm-opt -o jq.wasm --low-memory-unused --flatten --rereloop --converge -O3 jq_reactor.wasm
 
 CMD ["cat", "jq.wasm"]

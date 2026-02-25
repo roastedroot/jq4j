@@ -50,7 +50,7 @@ public final class JqReactor implements AutoCloseable {
     private final ExportFunction getOutputPtrFn;
     private final ExportFunction getOutputLenFn;
 
-    public JqReactor() {
+    protected JqReactor() {
         var wasi = WasiPreview1.builder()
                 .withOptions(WasiOptions.builder()
                         .withStdout(new ByteArrayOutputStream())

@@ -13,11 +13,8 @@ import com.dylibso.chicory.wasm.types.FunctionType;
 import com.dylibso.chicory.wasm.types.ValType;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 @WasmModuleInterface(WasmResource.absoluteFile)
 public final class Jq {
@@ -27,7 +24,7 @@ public final class Jq {
         return new Builder();
     }
 
-    private JqResult process(byte[] stdin, List<String> args, Map<String, Path> directories) {
+    private JqResult process(byte[] stdin, List<String> args) {
         var stdout = new ByteArrayOutputStream();
         var stderr = new ByteArrayOutputStream();
 
@@ -39,12 +36,6 @@ public final class Jq {
                                 new ByteArrayInputStream(
                                         stdin != null ? stdin : new byte[0]))
                         .withArguments(args);
-
-        if (directories != null) {
-            for (var entry : directories.entrySet()) {
-                wasiOptsBuilder.withDirectory(entry.getKey(), entry.getValue());
-            }
-        }
 
         try (var wasi = WasiPreview1.builder().withOptions(wasiOptsBuilder.build()).build()) {
             var instance = Instance.builder(MODULE)
@@ -66,7 +57,7 @@ public final class Jq {
                                                     }))
                                     .build())
                     .build();
-
+            
             instance.export("_initialize").apply();
             instance.export("jq_main_wasi").apply();
         } catch (WasiExitException e) {
@@ -79,7 +70,6 @@ public final class Jq {
     public static final class Builder {
         private byte[] stdin;
         private List<String> args;
-        private Map<String, Path> directories;
 
         private Builder() {}
 
@@ -97,16 +87,8 @@ public final class Jq {
             return this;
         }
 
-        public Builder withDirectory(String guest, Path host) {
-            if (this.directories == null) {
-                this.directories = new LinkedHashMap<>();
-            }
-            this.directories.put(guest, host);
-            return this;
-        }
-
         public JqResult run() {
-            return new Jq().process(stdin, args, directories);
+            return new Jq().process(stdin, args);
         }
     }
 }
