@@ -29,6 +29,17 @@ public class JqTest {
     }
 
     @Test
+    public void basicReactor() throws Exception {
+        // Arrange
+        var jq = new JqReactor();
+
+        // Act
+        var result = jq.process(JqTest.class.getResourceAsStream("/fruits.json").readAllBytes(), ".[].name");
+
+        System.out.println(result);
+    }
+
+    @Test
     public void error() {
         // Arrange
         var jq =
