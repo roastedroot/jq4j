@@ -10,8 +10,32 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <wasi/api.h>
 #include "jv.h"
 #include "jq.h"
+
+/* ── jq_main bridge: fetch WASI args and forward to jq_main ─────── */
+
+extern int jq_main(int argc, char *argv[]);
+
+int jq_main_wasi(void) {
+    /* fetch arg sizes from WASI */
+    size_t argc = 0;
+    size_t argv_buf_size = 0;
+    __wasi_args_sizes_get(&argc, &argv_buf_size);
+
+    /* allocate argv array + string buffer */
+    uint8_t **argv = malloc(sizeof(uint8_t *) * (argc + 1));
+    uint8_t *argv_buf = malloc(argv_buf_size);
+    __wasi_args_get(argv, argv_buf);
+    argv[argc] = NULL;
+
+    int ret = jq_main((int)argc, (char **)argv);
+
+    free(argv);
+    free(argv_buf);
+    return ret;
+}
 
 /* ── flags (must match Java side) ───────────────────────────────── */
 #define FLAG_SLURP      (1 << 0)

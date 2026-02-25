@@ -2,14 +2,19 @@ package io.roastedroot.jq4j;
 
 import com.dylibso.chicory.runtime.ByteArrayMemory;
 import com.dylibso.chicory.runtime.ExportFunction;
+import com.dylibso.chicory.runtime.HostFunction;
 import com.dylibso.chicory.runtime.ImportValues;
 import com.dylibso.chicory.runtime.Instance;
 import com.dylibso.chicory.runtime.Memory;
 import com.dylibso.chicory.wasi.WasiOptions;
 import com.dylibso.chicory.wasi.WasiPreview1;
 import com.dylibso.chicory.wasm.WasmModule;
+import com.dylibso.chicory.wasm.types.FunctionType;
+import com.dylibso.chicory.wasm.types.ValType;
+
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /**
  * Reactor-mode jq wrapper that uses WASM linear memory for I/O.
@@ -59,6 +64,17 @@ public final class JqReactor implements AutoCloseable {
                 .withImportValues(
                         ImportValues.builder()
                                 .addFunction(wasi.toHostFunctions())
+                                .addFunction(
+                                        new HostFunction(
+                                                "wasi",
+                                                "thread-spawn",
+                                                FunctionType.of(
+                                                        List.of(ValType.I32),
+                                                        List.of(ValType.I32)),
+                                                (i, a) -> {
+                                                    throw new UnsupportedOperationException(
+                                                            "--run-tests is not supported");
+                                                }))
                                 .build())
                 .build();
 

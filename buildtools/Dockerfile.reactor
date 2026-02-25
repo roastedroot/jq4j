@@ -14,11 +14,19 @@ ENV NM llvm-nm-${LLVM_VERSION}
 RUN ./configure --with-oniguruma=builtin --host=i686-pc-linux-gnu
 RUN make
 
-# Build the reactor-mode wrapper, linking against jq's static libraries.
-# Key differences from the command-mode build:
-#   -mexec-model=reactor  → exports _initialize instead of _start
-#   -Wl,--export=alloc,--export=dealloc,--export=process  → export our API
-#   Link against libjq.a and libonig.a built by `make` above
+# Compile jq's main.c as jq_main (renamed via -Dmain=jq_main)
+RUN clang-17 -c \
+    --target=wasm32-wasi-threads \
+    --sysroot=/wasi-sysroot/ \
+    -pthread -O3 \
+    -D_WASI_EMULATED_SIGNAL \
+    -Dmain=jq_main \
+    -I./src -I. \
+    src/main.c -o jq_main.o
+
+# Build the reactor-mode binary with both APIs:
+#   - jq_main: original batch execution (uses WASI stdin/stdout)
+#   - process/get_output_ptr/get_output_len: linear-memory API
 ADD buildtools/jq_wrapper.c jq_wrapper.c
 RUN clang-17 \
     --target=wasm32-wasi-threads \
@@ -30,6 +38,7 @@ RUN clang-17 \
     -I./src \
     -I. \
     jq_wrapper.c \
+    jq_main.o \
     .libs/libjq.a \
     modules/oniguruma/src/.libs/libonig.a \
     -lwasi-emulated-signal \
@@ -40,6 +49,7 @@ RUN clang-17 \
     -Wl,--export=process \
     -Wl,--export=get_output_ptr \
     -Wl,--export=get_output_len \
+    -Wl,--export=jq_main_wasi \
     -o jq_reactor.wasm
 
 RUN wasm-opt -o jq_reactor_opt.wasm --low-memory-unused --flatten --rereloop --converge -O3 jq_reactor.wasm

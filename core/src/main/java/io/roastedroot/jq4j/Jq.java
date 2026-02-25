@@ -47,7 +47,7 @@ public final class Jq {
         }
 
         try (var wasi = WasiPreview1.builder().withOptions(wasiOptsBuilder.build()).build()) {
-            Instance.builder(MODULE)
+            var instance = Instance.builder(MODULE)
                     .withMachineFactory(JqModule::create)
                     .withMemoryFactory(ByteArrayMemory::new)
                     .withImportValues(
@@ -66,6 +66,9 @@ public final class Jq {
                                                     }))
                                     .build())
                     .build();
+
+            instance.export("_initialize").apply();
+            instance.export("jq_main_wasi").apply();
         } catch (WasiExitException e) {
             return new JqResult(stdout.toByteArray(), stderr.toByteArray(), e.exitCode());
         }
