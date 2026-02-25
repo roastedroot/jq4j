@@ -29,6 +29,33 @@ public class JqTest {
     }
 
     @Test
+    public void reactorMode() throws Exception {
+        // Arrange
+        var jq = JqReactor.build();
+
+        // Act
+        var basic = jq
+                .withInput("{\n  \"foo\":   0   \n}")
+                .withFilter(".")
+                .withCompactOutput()
+                .run();
+        var fruits = jq
+                .withInput(JqTest.class.getResourceAsStream("/fruits.json").readAllBytes())
+                .withFilter(".[].name")
+                .run();
+
+        // Assert
+        assertEquals("{\"foo\":0}\n", new String(basic, UTF_8));
+        var fruitsList = "\"apple\"\n" + "\"banana\"\n" + "\"kiwi\"\n";
+        assertEquals(fruitsList, new String(fruits, UTF_8));
+
+        // stdout and err are kept for debugging purposes
+        assertEquals(0, jq.reactor().stdout().length);
+        assertEquals(0, jq.reactor().stderr().length);
+        jq.close();
+    }
+
+    @Test
     public void error() {
         // Arrange
         var jq =

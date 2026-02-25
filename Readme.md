@@ -43,6 +43,75 @@ if (result.success()) {
 }
 ```
 
+## Reactor Mode
+
+The default `Jq.builder()` creates a fresh WASM instance for every invocation.
+**Reactor mode** keeps a single instance alive and reuses it across calls,
+avoiding the per-call initialization overhead:
+
+```java
+import io.roastedroot.jq4j.JqReactor;
+
+var jq = JqReactor.build();
+
+byte[] result = jq
+    .withInput("{\"foo\": 0}")
+    .withFilter(".")
+    .withCompactOutput()
+    .run();
+// result: {"foo":0}\n
+
+// The same instance can be reused immediately
+byte[] fruits = jq
+    .withInput(fruitsJson)
+    .withFilter(".[].name")
+    .run();
+
+jq.close();
+```
+
+Available options: `withSlurp()`, `withNullInput()`, `withCompactOutput()`, `withSortKeys()`.
+
+> **Note:** A single `JqReactor` instance is **not thread-safe**.
+> Use one per thread, or use the pool described below.
+
+## Reactor Pool
+
+`JqReactorPool` manages a bounded set of reactor instances for concurrent use.
+It uses lock-free data structures internally, so it is safe to use with
+virtual threads (no carrier-thread pinning).
+
+```java
+import io.roastedroot.jq4j.JqReactorPool;
+
+var pool = JqReactorPool.create(4); // at most 4 concurrent reactors
+
+try (var loan = pool.borrow()) {    // blocks if all 4 are in use
+    byte[] result = loan.jq()
+        .withInput("{\"a\": 1}")
+        .withFilter(".a")
+        .withCompactOutput()
+        .run();
+}
+// reactor is automatically returned to the pool
+
+pool.close();
+```
+
+If a processing error may have left the reactor in a bad state, call
+`loan.discard()` instead of letting `close()` return it:
+
+```java
+try (var loan = pool.borrow()) {
+    try {
+        result = loan.jq().withInput(input).withFilter(filter).run();
+    } catch (RuntimeException ex) {
+        loan.discard(); // destroys this reactor; pool will create a fresh one
+        // handle error ...
+    }
+}
+```
+
 ## Building the Project
 
 To build this project, you'll need:
