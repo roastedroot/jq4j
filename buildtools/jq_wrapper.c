@@ -204,5 +204,5 @@ int process(
 
     jq_set_input_cb(jq, NULL, NULL);
     buf_input_free(&input);
-    return output_len;
+    return 0;
 }

@@ -29,14 +29,29 @@ public class JqTest {
     }
 
     @Test
-    public void basicReactor() throws Exception {
+    public void reactorMode() throws Exception {
         // Arrange
-        var jq = new JqReactor();
+        var jq = JqReactor.build();
 
         // Act
-        var result = jq.process(JqTest.class.getResourceAsStream("/fruits.json").readAllBytes(), ".[].name");
+        var basic = jq
+                .withInput("{\n  \"foo\":   0   \n}".getBytes(UTF_8))
+                .withFilter(".".getBytes(UTF_8))
+                .run();
+        var fruits = jq
+                .withInput(JqTest.class.getResourceAsStream("/fruits.json").readAllBytes())
+                .withFilter(".[].name".getBytes(UTF_8))
+                .run();
 
-        System.out.println(result);
+        // Assert
+        assertEquals("{\"foo\":0}\n", new String(basic, UTF_8));
+        var fruitsList = "\"apple\"\n" + "\"banana\"\n" + "\"kiwi\"\n";
+        assertEquals(fruitsList, new String(fruits, UTF_8));
+
+        // stdout and err are kept for debugging purposes
+        assertEquals(0, jq.reactor().stdout().length);
+        assertEquals(0, jq.reactor().stderr().length);
+        jq.close();
     }
 
     @Test

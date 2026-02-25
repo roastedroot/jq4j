@@ -13,8 +13,11 @@ import com.dylibso.chicory.wasm.types.FunctionType;
 import com.dylibso.chicory.wasm.types.ValType;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Reactor-mode jq wrapper that uses WASM linear memory for I/O.
@@ -43,18 +46,17 @@ public final class JqReactor implements AutoCloseable {
     private static WasmModule MODULE = JqModule.load();
 
     private final Instance instance;
-    private final Memory memory;
-    private final ExportFunction allocFn;
-    private final ExportFunction deallocFn;
-    private final ExportFunction processFn;
-    private final ExportFunction getOutputPtrFn;
-    private final ExportFunction getOutputLenFn;
+    private final WasiPreview1 wasi;
+    private final Jq_ModuleExports exports;
 
-    protected JqReactor() {
-        var wasi = WasiPreview1.builder()
+    private final ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+    private final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+
+    private JqReactor() {
+        this.wasi = WasiPreview1.builder()
                 .withOptions(WasiOptions.builder()
-                        .withStdout(new ByteArrayOutputStream())
-                        .withStderr(new ByteArrayOutputStream())
+                        .withStdout(stdout)
+                        .withStderr(stderr)
                         .build())
                 .build();
 
@@ -64,91 +66,121 @@ public final class JqReactor implements AutoCloseable {
                 .withImportValues(
                         ImportValues.builder()
                                 .addFunction(wasi.toHostFunctions())
-                                .addFunction(
-                                        new HostFunction(
-                                                "wasi",
-                                                "thread-spawn",
-                                                FunctionType.of(
-                                                        List.of(ValType.I32),
-                                                        List.of(ValType.I32)),
-                                                (i, a) -> {
-                                                    throw new UnsupportedOperationException(
-                                                            "--run-tests is not supported");
-                                                }))
+                                .addFunction(Jq.threadSpawnStub())
                                 .build())
                 .build();
 
-        this.memory         = instance.memory();
-        this.allocFn        = instance.export("alloc");
-        this.deallocFn      = instance.export("dealloc");
-        this.processFn      = instance.export("process");
-        this.getOutputPtrFn = instance.export("get_output_ptr");
-        this.getOutputLenFn = instance.export("get_output_len");
+        this.exports = new Jq_ModuleExports(instance);
 
-        instance.export("_initialize").apply();
+        exports._initialize();
     }
 
     /**
      * Run a jq filter against the given JSON input.
-     *
-     * @param input  JSON text (may contain multiple values separated by whitespace)
-     * @param filter jq filter expression (e.g. {@code ".[0].name"})
-     * @param flags  bitmask of {@code FLAG_*} constants
-     * @return the filter output (each result on its own line)
-     * @throws JqException on compilation or runtime errors
      */
-    public String process(byte[] input, String filter, int flags) {
-        byte[] filterBytes = filter.getBytes(StandardCharsets.UTF_8);
-
-        int inputPtr  = (int) allocFn.apply(input.length)[0];
-        int filterPtr = (int) allocFn.apply(filterBytes.length)[0];
+    public byte[] process(byte[] input, byte[] filter, int flags) {
+        int inputPtr  = exports.alloc(input.length);
+        int filterPtr = exports.alloc(filter.length);
 
         try {
-            memory.write(inputPtr, input);
-            memory.write(filterPtr, filterBytes);
+            exports.memory().write(inputPtr, input);
+            exports.memory().write(filterPtr, filter);
 
-            long[] rc = processFn.apply(
-                    inputPtr, input.length,
-                    filterPtr, filterBytes.length,
-                    flags);
-            int ret = (int) rc[0];
+            int ret = exports.process(inputPtr, input.length, filterPtr, filter.length, flags);
 
-            if (ret == RC_ERROR_COMPILE) {
-                throw new JqException("jq filter compilation failed: " + filter);
+            switch (ret) {
+                case 0:
+                    return exports.memory().readBytes(exports.getOutputPtr(), exports.getOutputLen());
+                case RC_ERROR_INIT:
+                    throw new RuntimeException("jq runtime initialization failed");
+                case RC_ERROR_COMPILE:
+                    throw new RuntimeException("jq filter compilation failed: " + filter);
+                default:
+                    throw new RuntimeException("Unknown error from jq wrapper: " + ret);
             }
-            if (ret == RC_ERROR_INIT) {
-                throw new JqException("jq runtime initialization failed");
-            }
-            if (ret < 0) {
-                throw new JqException("Unknown error from jq wrapper: " + ret);
-            }
-
-            int outPtr = (int) getOutputPtrFn.apply()[0];
-            int outLen = (int) getOutputLenFn.apply()[0];
-            return memory.readString(outPtr, outLen, StandardCharsets.UTF_8);
         } finally {
-            deallocFn.apply(inputPtr, input.length);
-            deallocFn.apply(filterPtr, filterBytes.length);
+            exports.dealloc(inputPtr, input.length);
+            exports.dealloc(filterPtr, filter.length);
         }
     }
 
-    /**
-     * Convenience: process with compact output and no special flags.
-     */
-    public String process(byte[] input, String filter) {
-        return process(input, filter, FLAG_COMPACT);
+    public byte[] stdout() {
+        return stdout.toByteArray();
+    }
+
+    public byte[] stderr() {
+        return stderr.toByteArray();
     }
 
     @Override
     public void close() {
-        // Instance doesn't currently need explicit cleanup in Chicory,
-        // but implementing AutoCloseable for future-proofing.
+        if (wasi != null) {
+            wasi.close();
+        }
+        if (stdout != null) {
+            try {
+                stdout.close();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        if (stderr != null) {
+            try {
+                stderr.close();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
     }
 
-    /** Thrown when jq compilation or processing fails. */
-    public static class JqException extends RuntimeException {
-        public JqException(String message) {
-            super(message);
+    public static Builder build() {
+        return new Builder(new JqReactor());
+    }
+
+    public static final class Builder implements AutoCloseable {
+        public final JqReactor reactor;
+
+        private byte[] input;
+        private byte[] filter;
+        private int flags;
+
+        private Builder(JqReactor reactor) {
+            this.reactor = reactor;
+        }
+
+        public JqReactor reactor() {
+            return reactor;
+        }
+
+        public Builder withInput(byte[] input) {
+            this.input = input;
+            return this;
+        }
+
+        public Builder withFilter(byte[] filter) {
+            this.filter = filter;
+            return this;
+        }
+
+        public byte[] run() {
+            Objects.requireNonNull(input);
+            Objects.requireNonNull(filter);
+            if (flags == 0) {
+                flags = FLAG_COMPACT;
+            }
+            var result = reactor.process(input, filter, flags);
+
+            // clean up for next execution
+            input = null;
+            filter = null;
+            flags = 0;
+
+            return result;
+        }
+
+        @Override
+        public void close() {
+            reactor.close();
         }
     }
 }
