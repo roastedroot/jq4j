@@ -65,7 +65,7 @@
     <jackson.version>2.21.1</jackson.version>
 
     <!-- runtime versions -->
-    <chicory.version>1.6.1</chicory.version>
+    <chicory.version>1.7.0</chicory.version>
   </properties>
 
   <build>
