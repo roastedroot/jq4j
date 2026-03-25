@@ -260,6 +260,19 @@
                 </execution>
               </executions>
             </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+
+    <profile>
+      <id>java21-checkstyle</id>
+      <activation>
+        <jdk>[21,)</jdk>
+      </activation>
+      <build>
+        <pluginManagement>
+          <plugins>
             <plugin>
               <groupId>org.apache.maven.plugins</groupId>
               <artifactId>maven-checkstyle-plugin</artifactId>
