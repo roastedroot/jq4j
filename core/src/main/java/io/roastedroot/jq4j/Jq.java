@@ -1,6 +1,5 @@
 package io.roastedroot.jq4j;
 
-import com.dylibso.chicory.annotations.WasmModuleInterface;
 import com.dylibso.chicory.runtime.ByteArrayMemory;
 import com.dylibso.chicory.runtime.HostFunction;
 import com.dylibso.chicory.runtime.ImportValues;
@@ -18,7 +17,6 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 
-@WasmModuleInterface(WasmResource.absoluteFile)
 public final class Jq {
     private static WasmModule MODULE = JqModule.load();
 
