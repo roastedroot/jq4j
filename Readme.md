@@ -5,7 +5,7 @@
 ## Why?
 
 `jq` is a very handy tool we all use everyday, sadly it's syntax doesn't follow a spec that can be easily ported across languages.
-By compiling `jq` to Wasm and Wasm to Java bytecode thanks to [Chicory](https://chicory.dev) we don't need to port the original source code and we have 1:1 functionality out-of-the-box.
+By compiling `jq` to Wasm and Wasm to Java bytecode thanks to [Endive](https://endive.run) we don't need to port the original source code and we have 1:1 functionality out-of-the-box.
 
 ## Quick Start
 
@@ -132,4 +132,4 @@ mvn clean install
 This project stands on the shoulders of giants:
 
 * [go-jq](https://github.com/wasilibs/go-jq) - go-jq is a distribution of jq, that can be built with Go
-* [Chicory](https://chicory.dev/) – a native JVM WebAssembly runtime
+* [Endive](https://endive.run/) – a native JVM WebAssembly runtime
