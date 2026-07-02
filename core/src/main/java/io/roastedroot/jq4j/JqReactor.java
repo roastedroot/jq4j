@@ -1,16 +1,16 @@
 package io.roastedroot.jq4j;
 
-import com.dylibso.chicory.runtime.ByteArrayMemory;
-import com.dylibso.chicory.runtime.ExportFunction;
-import com.dylibso.chicory.runtime.HostFunction;
-import com.dylibso.chicory.runtime.ImportValues;
-import com.dylibso.chicory.runtime.Instance;
-import com.dylibso.chicory.runtime.Memory;
-import com.dylibso.chicory.wasi.WasiOptions;
-import com.dylibso.chicory.wasi.WasiPreview1;
-import com.dylibso.chicory.wasm.WasmModule;
-import com.dylibso.chicory.wasm.types.FunctionType;
-import com.dylibso.chicory.wasm.types.ValType;
+import run.endive.runtime.ByteArrayMemory;
+import run.endive.runtime.ExportFunction;
+import run.endive.runtime.HostFunction;
+import run.endive.runtime.ImportValues;
+import run.endive.runtime.Instance;
+import run.endive.runtime.Memory;
+import run.endive.wasi.WasiOptions;
+import run.endive.wasi.WasiPreview1;
+import run.endive.wasm.WasmModule;
+import run.endive.wasm.types.FunctionType;
+import run.endive.wasm.types.ValType;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

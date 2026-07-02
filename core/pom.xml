@@ -15,14 +15,14 @@
 
   <dependencies>
     <dependency>
-      <groupId>com.dylibso.chicory</groupId>
+      <groupId>run.endive</groupId>
       <artifactId>runtime</artifactId>
-      <version>${chicory.version}</version>
+      <version>${endive.version}</version>
     </dependency>
     <dependency>
-      <groupId>com.dylibso.chicory</groupId>
+      <groupId>run.endive</groupId>
       <artifactId>wasi</artifactId>
-      <version>${chicory.version}</version>
+      <version>${endive.version}</version>
     </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
@@ -49,12 +49,12 @@
   <build>
     <plugins>
       <plugin>
-        <groupId>com.dylibso.chicory</groupId>
-        <artifactId>chicory-compiler-maven-plugin</artifactId>
-        <version>${chicory.version}</version>
+        <groupId>run.endive</groupId>
+        <artifactId>endive-compiler-maven-plugin</artifactId>
+        <version>${endive.version}</version>
         <executions>
           <execution>
-            <id>javy-plugin</id>
+            <id>compile-jq</id>
             <goals>
               <goal>compile</goal>
             </goals>
